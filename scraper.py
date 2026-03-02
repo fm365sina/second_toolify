@@ -277,23 +277,28 @@ def _load_rank_page(page: Page, base_url: str, target: int, source: str) -> list
 
 
 def _choose_reachable_url(page: Page, candidates: list[str]) -> str:
+    last_error: Exception | None = None
     for url in candidates:
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(1_200)
-            text = page.inner_text("body")
-            if "toolify" in text.lower() and len(text) > 300:
+            response = page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(1_000)
+            status = response.status if response is not None else 0
+            if status == 0 or 200 <= status < 500:
                 return url
         except Exception as exc:  # noqa: BLE001
+            last_error = exc
             LOGGER.warning("Failed opening %s: %s", url, exc)
             continue
-    raise RuntimeError(f"No reachable Toolify URL found in candidates: {candidates}")
+    raise RuntimeError(
+        f"No reachable Toolify URL found in candidates: {candidates}; last_error={last_error}"
+    )
 
 
 def scrape_toolify_data(max_most_used: int = 150, max_new: int = 120, headless: bool = True) -> list[dict]:
     """Scrape ranked Toolify lists and return normalized dictionaries."""
     targets = {"most_used": max_most_used, "new_ais": max_new}
     all_items: list[ToolItem] = []
+    source_errors: dict[str, str] = {}
 
     with sync_playwright() as p:
         browser: Browser = p.chromium.launch(headless=headless)
@@ -301,16 +306,23 @@ def scrape_toolify_data(max_most_used: int = 150, max_new: int = 120, headless: 
         page = context.new_page()
 
         for source, config in SOURCE_CONFIG.items():
-            base_url = _choose_reachable_url(page, config["urls"])
-            target = targets[source]
-            LOGGER.info("Scraping %s from %s (target=%s)", source, base_url, target)
-            start = time.time()
-            source_items = _load_rank_page(page, base_url=base_url, target=target, source=source)
-            elapsed = round(time.time() - start, 2)
-            LOGGER.info("Collected %s items for %s in %ss", len(source_items), source, elapsed)
-            all_items.extend(source_items)
+            try:
+                base_url = _choose_reachable_url(page, config["urls"])
+                target = targets[source]
+                LOGGER.info("Scraping %s from %s (target=%s)", source, base_url, target)
+                start = time.time()
+                source_items = _load_rank_page(page, base_url=base_url, target=target, source=source)
+                elapsed = round(time.time() - start, 2)
+                LOGGER.info("Collected %s items for %s in %ss", len(source_items), source, elapsed)
+                all_items.extend(source_items)
+            except Exception as exc:  # noqa: BLE001
+                source_errors[source] = str(exc)
+                LOGGER.exception("Failed scraping source %s: %s", source, exc)
 
         context.close()
         browser.close()
+
+    if not all_items:
+        raise RuntimeError(f"Scraping produced no records. source_errors={source_errors}")
 
     return [asdict(item) for item in all_items]
