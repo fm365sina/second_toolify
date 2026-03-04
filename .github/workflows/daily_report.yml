@@ -39,6 +39,7 @@ jobs:
           SELECTED_MIN: '100'
           SELECTED_MAX: '140'
           PLAYWRIGHT_HEADLESS: 'true'
-          NOTION_SKIP_IF_EXISTS: 'true'
+          # Manual runs always create a new Notion page; scheduled runs keep daily idempotency.
+          NOTION_SKIP_IF_EXISTS: ${{ github.event_name == 'workflow_dispatch' && 'false' || 'true' }}
           REPORT_TIMEZONE: 'Asia/Shanghai'
         run: python main.py

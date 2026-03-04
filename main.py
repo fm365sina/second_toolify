@@ -40,7 +40,8 @@ def run() -> int:
         logger.error("Configuration error: %s", exc)
         return 1
 
-    report_date = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m-%d")
+    now_local = datetime.now(ZoneInfo(settings.timezone))
+    report_date = now_local.strftime("%Y-%m-%d")
     artifacts_dir = Path("artifacts") / report_date
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
@@ -94,11 +95,15 @@ def run() -> int:
 
     try:
         logger.info("Step 4/4: writing report to Notion page")
+        notion_title_date = report_date
+        if not settings.notion_skip_if_exists:
+            # For manual/debug runs, include local timestamp to force unique page titles.
+            notion_title_date = now_local.strftime("%Y-%m-%d %H:%M:%S")
         notion_result = write_daily_report_to_notion(
             markdown_text=markdown,
             notion_token=settings.notion_token,
             parent_page_id=settings.notion_parent_page_id,
-            date_str=report_date,
+            date_str=notion_title_date,
             skip_if_exists=settings.notion_skip_if_exists,
         )
         _write_artifact(

@@ -37,6 +37,10 @@ python main.py
 - `NOTION_SKIP_IF_EXISTS` (optional, default `true`)
 - `REPORT_TIMEZONE` (optional, default `Asia/Shanghai`)
 
+Note:
+- In GitHub Actions, manual `workflow_dispatch` runs set `NOTION_SKIP_IF_EXISTS=false` automatically to always create a new page.
+- Scheduled runs keep `NOTION_SKIP_IF_EXISTS=true` to avoid duplicate daily pages.
+
 ## Output Artifacts
 
 Each run writes debug artifacts to `artifacts/YYYY-MM-DD/`:
