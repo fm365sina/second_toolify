@@ -10,7 +10,7 @@ class Settings:
     notion_token: str
     notion_parent_page_id: str
     deepseek_model: str = "deepseek-chat"
-    deepseek_base_url: str = "https://api.deepseek.com/v1"
+    deepseek_base_url: str = "https://api.deepseek.com"
     timezone: str = "Asia/Shanghai"
     max_most_used: int = 150
     max_new: int = 120
@@ -62,8 +62,8 @@ def load_settings() -> Settings:
         notion_token=notion_token,
         notion_parent_page_id=notion_parent_page_id,
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip() or "deepseek-chat",
-        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").strip()
-        or "https://api.deepseek.com/v1",
+        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+        or "https://api.deepseek.com",
         timezone=os.getenv("REPORT_TIMEZONE", "Asia/Shanghai").strip() or "Asia/Shanghai",
         max_most_used=_int_env("MAX_MOST_USED", 150),
         max_new=_int_env("MAX_NEW_AIS", 120),

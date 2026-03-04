@@ -28,7 +28,7 @@ python main.py
 - `NOTION_TOKEN`
 - `NOTION_PARENT_PAGE_ID`
 - `DEEPSEEK_MODEL` (optional, default `deepseek-chat`)
-- `DEEPSEEK_BASE_URL` (optional, default `https://api.deepseek.com/v1`)
+- `DEEPSEEK_BASE_URL` (optional, default `https://api.deepseek.com`)
 - `MAX_MOST_USED` (optional, default `150`)
 - `MAX_NEW_AIS` (optional, default `120`)
 - `SELECTED_MIN` (optional, default `100`)
