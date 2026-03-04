@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Iterable
@@ -45,6 +46,15 @@ SOURCE_CONFIG = {
         ],
     },
 }
+
+JINA_SOURCE_URLS = {
+    "most_used": "https://r.jina.ai/http://www.toolify.ai/most-used",
+    "new_ais": "https://r.jina.ai/http://www.toolify.ai/new",
+}
+
+JINA_TOOL_LINE_RE = re.compile(
+    r"^\[\!\[Image\s+\d+\]\([^)]+\)\s*(.+?)\]\((http://www\.toolify\.ai/tool/[^\)]+)\)"
+)
 
 
 @dataclass
@@ -215,6 +225,83 @@ def _parse_main_text(main_text: str, source: str, captured_at: str, links: list[
     return items
 
 
+def _slug_to_name(url: str) -> str:
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    cleaned = slug.replace("-", " ").strip()
+    if not cleaned:
+        return "Unknown Tool"
+    return " ".join(part.capitalize() for part in cleaned.split())
+
+
+def _fetch_text(url: str, timeout: int = 40) -> str:
+    request = urllib.request.Request(
+        url=url,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+            )
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = response.read().decode("utf-8", errors="ignore")
+    return body
+
+
+def _parse_jina_markdown(markdown_text: str, source: str, target: int) -> list[ToolItem]:
+    captured_at = datetime.now(timezone.utc).isoformat()
+    items: list[ToolItem] = []
+    seen_urls: set[str] = set()
+
+    for line in markdown_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = JINA_TOOL_LINE_RE.match(line)
+        if not match:
+            continue
+
+        description = _normalize_text(match.group(1))
+        url = _normalize_text(match.group(2))
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+
+        rank = len(items) + 1
+        name = _slug_to_name(url)
+        if description.startswith(name):
+            description = description[len(name) :].strip()
+        if len(description) < 12:
+            description = f"Tool profile captured from Toolify mirror entry for {name}."
+
+        items.append(
+            ToolItem(
+                name=name,
+                tag="",
+                description=description[:240],
+                rank=rank,
+                rank_change="",
+                visits="",
+                source_page=source,
+                url=url,
+                captured_at=captured_at,
+            )
+        )
+        if len(items) >= target:
+            break
+
+    return items
+
+
+def _fallback_via_jina(source: str, target: int) -> list[ToolItem]:
+    mirror_url = JINA_SOURCE_URLS[source]
+    LOGGER.info("Using Jina mirror fallback for %s: %s", source, mirror_url)
+    markdown_text = _fetch_text(mirror_url, timeout=60)
+    items = _parse_jina_markdown(markdown_text, source=source, target=target)
+    LOGGER.info("Jina mirror fallback collected %s items for %s", len(items), source)
+    return items
+
+
 def _load_rank_page(page: Page, base_url: str, target: int, source: str) -> list[ToolItem]:
     captured_at = datetime.now(timezone.utc).isoformat()
     seen_keys: set[tuple[str, int, str]] = set()
@@ -306,18 +393,31 @@ def scrape_toolify_data(max_most_used: int = 150, max_new: int = 120, headless: 
         page = context.new_page()
 
         for source, config in SOURCE_CONFIG.items():
+            target = targets[source]
             try:
                 base_url = _choose_reachable_url(page, config["urls"])
-                target = targets[source]
                 LOGGER.info("Scraping %s from %s (target=%s)", source, base_url, target)
                 start = time.time()
                 source_items = _load_rank_page(page, base_url=base_url, target=target, source=source)
                 elapsed = round(time.time() - start, 2)
                 LOGGER.info("Collected %s items for %s in %ss", len(source_items), source, elapsed)
+                if len(source_items) < max(20, min(80, target // 3)):
+                    LOGGER.warning(
+                        "Playwright result for %s is too small (%s); falling back to mirror",
+                        source,
+                        len(source_items),
+                    )
+                    source_items = _fallback_via_jina(source=source, target=target)
                 all_items.extend(source_items)
             except Exception as exc:  # noqa: BLE001
                 source_errors[source] = str(exc)
                 LOGGER.exception("Failed scraping source %s: %s", source, exc)
+                try:
+                    source_items = _fallback_via_jina(source=source, target=target)
+                    all_items.extend(source_items)
+                except Exception as fallback_exc:  # noqa: BLE001
+                    source_errors[source] = f"{exc} | fallback={fallback_exc}"
+                    LOGGER.exception("Fallback scraping also failed for %s: %s", source, fallback_exc)
 
         context.close()
         browser.close()
