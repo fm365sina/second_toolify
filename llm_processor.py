@@ -63,6 +63,47 @@ def _validate_output(markdown_text: str) -> tuple[bool, list[str]]:
     return len(errors) == 0, errors
 
 
+def _contains_chinese(text: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", text or ""))
+
+
+def _description_to_chinese(description: str) -> str:
+    text = (description or "").strip()
+    if not text:
+        return "面向业务流程提效的 AI 工具。"
+    if _contains_chinese(text):
+        return text[:100]
+
+    lower = text.lower()
+    mapping_rules = [
+        (("enterprise", "b2b"), "定位企业级落地与团队协作"),
+        (("rag", "retrieval", "knowledge"), "面向 RAG 与知识库问答场景"),
+        (("workflow", "automation", "pipeline"), "强调流程自动化与稳定交付"),
+        (("crm", "sales", "lead", "marketing"), "聚焦客户管理与销售增长"),
+        (("customer service", "support", "ticket"), "服务于客服工单与服务运营"),
+        (("document", "contract", "invoice"), "侧重文档、合同与单据处理"),
+        (("image", "video", "3d", "design"), "用于图像视频与内容生产提效"),
+        (("code", "developer", "api"), "面向开发集成与系统扩展"),
+        (("analytics", "data"), "支持数据分析与决策辅助"),
+        (("no-code", "nocode"), "强调低代码/无代码快速搭建"),
+    ]
+
+    highlights: list[str] = []
+    for keywords, phrase in mapping_rules:
+        if any(keyword in lower for keyword in keywords):
+            highlights.append(phrase)
+
+    unique_highlights: list[str] = []
+    for phrase in highlights:
+        if phrase not in unique_highlights:
+            unique_highlights.append(phrase)
+
+    if unique_highlights:
+        return "，".join(unique_highlights[:2]) + "。"
+
+    return "提供 AI 驱动的工具能力，核心目标是提升业务效率与交付质量。"
+
+
 def _compact_tool(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": item.get("name", ""),
@@ -103,6 +144,7 @@ def _build_user_prompt(selected_data: dict[str, Any], report_date: str, tool_lim
         "5) ## 半山金句\n"
         "写作原则：聚焦真实业务落地，尤其 C 端、政务、B 端场景；避免空洞流量叙事。\n"
         "在“可执行机会清单”中至少给出 5 条可执行方向，每条包含：目标客户、痛点、MVP、变现路径。\n"
+        "样本焦点中每个工具的一句话简介必须改写为中文，不得保留英文原句。\n"
         "禁止输出与数据无关的空泛判断。\n"
     )
 
@@ -141,9 +183,8 @@ def _build_fallback_report(selected_data: dict[str, Any], report_date: str, reas
         rank = item.get("rank", "?")
         source = item.get("source_page", "mixed")
         desc = (item.get("description", "") or "").strip()
-        if len(desc) > 68:
-            desc = f"{desc[:68]}..."
-        tool_lines.append(f"* {idx}. **{name}**（{source} 榜单 #{rank}）：{desc}")
+        desc_cn = _description_to_chinese(desc)
+        tool_lines.append(f"* {idx}. **{name}**（{source} 榜单 #{rank}）：{desc_cn}")
 
     lines = [
         "## 今日结论",
